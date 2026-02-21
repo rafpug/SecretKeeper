@@ -3,19 +3,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <minix/ds.h>
-#include "hello.h"
+#include "secretkeeper.h"
 
 /*
- *  * Function prototypes for the hello driver.
+ *  * Function prototypes for the secret driver.
  *   */
-FORWARD _PROTOTYPE( char * hello_name,   (void) );
-FORWARD _PROTOTYPE( int hello_open,      (struct driver *d, message *m) );
-FORWARD _PROTOTYPE( int hello_close,     (struct driver *d, message *m) );
-FORWARD _PROTOTYPE( struct device * hello_prepare, (int device) );
-FORWARD _PROTOTYPE( int hello_transfer,  (int procnr, int opcode,
+FORWARD _PROTOTYPE( char * secret_name,   (void) );
+FORWARD _PROTOTYPE( int secret_open,      (struct driver *d, message *m) );
+FORWARD _PROTOTYPE( int secret_close,     (struct driver *d, message *m) );
+FORWARD _PROTOTYPE( struct device * secret_prepare, (int device) );
+FORWARD _PROTOTYPE( int secret_transfer,  (int procnr, int opcode,
                                           u64_t position, iovec_t *iov,
                                           unsigned nr_req) );
-FORWARD _PROTOTYPE( void hello_geometry, (struct partition *entry) );
+FORWARD _PROTOTYPE( void secret_geometry, (struct partition *entry) );
 
 /* SEF functions and variables. */
 FORWARD _PROTOTYPE( void sef_local_startup, (void) );
@@ -23,17 +23,17 @@ FORWARD _PROTOTYPE( int sef_cb_init, (int type, sef_init_info_t *info) );
 FORWARD _PROTOTYPE( int sef_cb_lu_state_save, (int) );
 FORWARD _PROTOTYPE( int lu_state_restore, (void) );
 
-/* Entry points to the hello driver. */
-PRIVATE struct driver hello_tab =
+/* Entry points to the secret driver. */
+PRIVATE struct driver secret_tab =
 {
-    hello_name,
-    hello_open,
-    hello_close,
+    secret_name,
+    secret_open,
+    secret_close,
     nop_ioctl,
-    hello_prepare,
-    hello_transfer,
+    secret_prepare,
+    secret_transfer,
     nop_cleanup,
-    hello_geometry,
+    secret_geometry,
     nop_alarm,
     nop_cancel,
     nop_select,
@@ -41,45 +41,45 @@ PRIVATE struct driver hello_tab =
     do_nop,
 };
 
-/** Represents the /dev/hello device. */
-PRIVATE struct device hello_device;
+/** Represents the /dev/secret device. */
+PRIVATE struct device secret_device;
 
 /** State variable to count the number of times the device has been opened. */
 PRIVATE int open_counter;
 
-PRIVATE char * hello_name(void)
+PRIVATE char * secret_name(void)
 {
-    printf("hello_name()\n");
-    return "hello";
+    printf("secret_name()\n");
+    return "secret";
 }
 
-PRIVATE int hello_open(d, m)
+PRIVATE int secret_open(d, m)
     struct driver *d;
     message *m;
 {
-    printf("hello_open(). Called %d time(s).\n", ++open_counter);
+    printf("secret_open(). Called %d time(s).\n", ++open_counter);
     return OK;
 }
 
-PRIVATE int hello_close(d, m)
+PRIVATE int secret_close(d, m)
     struct driver *d;
     message *m;
 {
-    printf("hello_close()\n");
+    printf("secret_close()\n");
     return OK;
 }
 
-PRIVATE struct device * hello_prepare(dev)
+PRIVATE struct device * secret_prepare(dev)
     int dev;
 {
-    hello_device.dv_base.lo = 0;
-    hello_device.dv_base.hi = 0;
-    hello_device.dv_size.lo = strlen(HELLO_MESSAGE);
-    hello_device.dv_size.hi = 0;
+    secret_device.dv_base.lo = 0;
+    secret_device.dv_base.hi = 0;
+    secret_device.dv_size.lo = strlen(SECRET_MESSAGE);
+    secret_device.dv_size.hi = 0;
     return &hello_device;
 }
 
-PRIVATE int hello_transfer(proc_nr, opcode, position, iov, nr_req)
+PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
     int proc_nr;
     int opcode;
     u64_t position;
@@ -88,10 +88,10 @@ PRIVATE int hello_transfer(proc_nr, opcode, position, iov, nr_req)
 {
     int bytes, ret;
 
-    printf("hello_transfer()\n");
+    printf("secret_transfer()\n");
 
-    bytes = strlen(HELLO_MESSAGE) - position.lo < iov->iov_size ?
-            strlen(HELLO_MESSAGE) - position.lo : iov->iov_size;
+    bytes = strlen(SECRET_MESSAGE) - position.lo < iov->iov_size ?
+            strlen(SECRET_MESSAGE) - position.lo : iov->iov_size;
 
     if (bytes <= 0)
     {
@@ -101,7 +101,7 @@ PRIVATE int hello_transfer(proc_nr, opcode, position, iov, nr_req)
     {
         case DEV_GATHER_S:
             ret = sys_safecopyto(proc_nr, iov->iov_addr, 0,
-                                (vir_bytes) (HELLO_MESSAGE + position.lo),
+                                (vir_bytes) (SECRET_MESSAGE + position.lo),
                                  bytes, D);
             iov->iov_size -= bytes;
             break;
@@ -112,10 +112,10 @@ PRIVATE int hello_transfer(proc_nr, opcode, position, iov, nr_req)
     return ret;
 }
 
-PRIVATE void hello_geometry(entry)
+PRIVATE void secret_geometry(entry)
     struct partition *entry;
 {
-    printf("hello_geometry()\n");
+    printf("secret_geometry()\n");
     entry->cylinders = 0;
     entry->heads     = 0;
     entry->sectors   = 0;
@@ -170,7 +170,7 @@ PRIVATE int sef_cb_init(int type, sef_init_info_t *info)
     open_counter = 0;
     switch(type) {
         case SEF_INIT_FRESH:
-            printf("%s", HELLO_MESSAGE);
+            printf("%s", SECRET_MESSAGE);
         break;
 
         case SEF_INIT_LU:
@@ -178,11 +178,11 @@ PRIVATE int sef_cb_init(int type, sef_init_info_t *info)
             lu_state_restore();
             do_announce_driver = FALSE;
 
-            printf("%sHey, I'm a new version!\n", HELLO_MESSAGE);
+            printf("%sHey, I'm a new version!\n", SECRET_MESSAGE);
         break;
 
         case SEF_INIT_RESTART:
-            printf("%sHey, I've just been restarted!\n", HELLO_MESSAGE);
+            printf("%sHey, I've just been restarted!\n", SECRET_MESSAGE);
         break;
     }
 
@@ -205,7 +205,6 @@ PUBLIC int main(int argc, char **argv)
     /*
  *      * Run the main loop.
  *           */
-    driver_task(&hello_tab, DRIVER_STD);
+    driver_task(&secret_tab, DRIVER_STD);
     return OK;
-        print_fork(fork1, !HELD);
 }
