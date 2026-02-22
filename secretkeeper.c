@@ -120,7 +120,7 @@ PRIVATE int secret_open(d, m)
     r = getnucred(who, &cred);
     if (r != OK) {
         /* Returns errno from getnucred failing */
-        return r;
+        return -r;
     }
 
     if ((flags & (RBIT | WBIT)) == (RBIT | WBIT)) {
@@ -200,7 +200,7 @@ PRIVATE int secret_ioctl(struct driver *d, message *m)
     
     r = getnucred(m->IO_ENDPT, &cred);
     if (r != OK) {
-        return r;
+        return -r;
     }
 
     if (secret_owned == UNOWNED || cred.uid != secret_owner) {
@@ -210,7 +210,7 @@ PRIVATE int secret_ioctl(struct driver *d, message *m)
     r = sys_safecopyfrom(m->IO_ENDPT, (vir_bytes)m->IO_GRANT, 0,
                 (vir_bytes) &grantee, sizeof(grantee), D);
     if (r != OK) {
-        return r;
+        return -r;
     }
 
     secret_owner = grantee;
@@ -347,17 +347,55 @@ PRIVATE int sef_cb_lu_state_save(int state) {
     return OK;
 }
 
+/* Helper that retrieves and deletes a stored value */
+PRIVATE int restore_wrapper(char *name, void *vaddr, size_t length) {
+    int ret;
+    ret = ds_retrieve_mem(name, (char *) ptr, &length);
+    ds_delete_mem(name);
+    return ret
+}
+    
+
 PRIVATE int lu_state_restore() {
 /* Restore the state. */
-    size_t len;
     int ret;
 
-    len = sizeof(int);
-    ret = ds_retrieve_mem("open_counter",(char *) &open_counter, &len);
-    ds_delete_mem("open_counter");
-    open_counter = (int) value;
+    ret = restore_wrapper("open_counter",&open_counter, sizeof(int));
+    if (ret != OK) {
+        secret_reset();
+        return ret;
+    }
 
-    ds_retrieve_mem("open_counter", 
+    ret = restore_wrapper("secret_owned",&secret_owned, sizeof(int));
+    if (ret != OK) {
+        secret_reset();
+        return ret;
+    }
+
+    ret = restore_wrapper("read_once", &read_once, sizeof(int));
+    if (ret != OK) {
+        secret_reset();
+        return ret;
+    }
+    
+    
+    ret = restore_wrapper("wpos", &wpos, sizeof(size_t));
+    if (ret != OK) {
+        secret_reset();
+        return ret;
+    }
+
+    ret = restore_wrapper("rpos", &rpos, sizeof(size_t));
+    if (ret != OK) {
+        secret_reset();
+        return ret; 
+    }
+    
+    ret = restore_wrapper("secret_buf", secret_buf, SECRET_SIZE);
+    if (ret != OK) {
+        secret_reset();
+        return ret;
+    }
 
     return OK;
 }
