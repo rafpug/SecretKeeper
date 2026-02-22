@@ -272,13 +272,27 @@ PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
                 bytes = SECRET_SIZE - wpos;
             }
 
-            if (bytes       
+            if (bytes <= 0) {
+                return ENOSPC;
+            }
+
+            ret = sys_safecopyfrom(proc_nr, iov->iov_addr, 0,
+                                (vir_bytes)(secret_buf + wpos), bytes, D);
+            if (ret != OK) {
+                return ret;
+            }
+        
+            wpos += bytes;
+            iov->iov_size -= bytes;
+            break;
+
         default:
             return EINVAL;
     }
-    return ret;
+    return OK;
 }
 
+/* Not used by anything */
 PRIVATE void secret_geometry(entry)
     struct partition *entry;
 {
@@ -290,7 +304,8 @@ PRIVATE void secret_geometry(entry)
 
 PRIVATE int sef_cb_lu_state_save(int state) {
 /* Save the state. */
-    ds_publish_u32("open_counter", open_counter, DSF_OVERWRITE);
+    ds_publish_mem("open_counter", open_counter, sizeof(int), DSF_OVERWRITE);
+    
 
     return OK;
 }
