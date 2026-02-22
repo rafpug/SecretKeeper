@@ -3,14 +3,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <minix/ds.h>
-#include "secretkeeper.h"
+
+#include <sys/ioctl.h>
+#include <sys/ucred.h>
+
+#ifndef SECRET_SIZE
+#define SECRET_SIZE 8192
+#endif
+
+#ifndef RBIT
+#define RBIT 4
+#endif
+
+#ifndef WBIT
+#define WBIT 2
+#endif
 
 /*
- *  * Function prototypes for the secret driver.
- *   */
+ * Function prototypes for the secret driver.
+ */
 FORWARD _PROTOTYPE( char * secret_name,   (void) );
 FORWARD _PROTOTYPE( int secret_open,      (struct driver *d, message *m) );
 FORWARD _PROTOTYPE( int secret_close,     (struct driver *d, message *m) );
+FORWARD _PROTOTYPE( int secret_ioctl,     (struct driver *d, messega *m) );
 FORWARD _PROTOTYPE( struct device * secret_prepare, (int device) );
 FORWARD _PROTOTYPE( int secret_transfer,  (int procnr, int opcode,
                                           u64_t position, iovec_t *iov,
@@ -29,7 +44,7 @@ PRIVATE struct driver secret_tab =
     secret_name,
     secret_open,
     secret_close,
-    nop_ioctl,
+    secret_ioctl,
     secret_prepare,
     secret_transfer,
     nop_cleanup,
@@ -41,22 +56,68 @@ PRIVATE struct driver secret_tab =
     do_nop,
 };
 
-/** Represents the /dev/secret device. */
+/* Represents the /dev/secret device. */
 PRIVATE struct device secret_device;
 
-/** State variable to count the number of times the device has been opened. */
+/* State variable to count the number of times the device has been opened. */
 PRIVATE int open_counter;
 
+/* Boolean that indicates whether the secret has been read atleast once */
+PRIVATE int read_once;
+
+/* The amount of bytes read from the current buffer */
+PRIVATE size_t rpos;
+
+/* The amount of bytes written to the current buffer */
+PRIVATE size_t wpos;
+
+/* Boolean that indicates whether the secret is owned */
+PRIVATE int owned;
+
+/* The uid of the owner of the secret */
+PRIVATE uid_t owner;
+
+/* The buffer that holds the current secret */
+PRIVATE char secret_buf[SECRET_SIZE];
+
+/* Helper that resets all the above data */
+PRIVATE void secret_reset(void)
+{
+    open_counter = 0;
+    read_once = 0;
+    rpos = 0;
+    wpos = 0;
+    owned = 0;
+    owner = 0;
+}
+
+/* Returns the name of this driver */
 PRIVATE char * secret_name(void)
 {
     printf("secret_name()\n");
-    return "secret";
+    return "secretkeeper";
 }
 
 PRIVATE int secret_open(d, m)
     struct driver *d;
     message *m;
 {
+    int flags = m->COUNT;
+    struct ucred cred;
+    int r;
+    endpoint_t who = m->IO_ENDPT;
+
+    r = getnucred(who, &cred);
+    if (r != OK) {
+        return r;
+    }
+
+    if ((flags & (RBIT | WBIT)) == (RBIT | WBIT)) {
+        return EACCES;
+    }
+
+    if (!secret_owner_valid) {
+        
     printf("secret_open(). Called %d time(s).\n", ++open_counter);
     return OK;
 }
@@ -74,9 +135,9 @@ PRIVATE struct device * secret_prepare(dev)
 {
     secret_device.dv_base.lo = 0;
     secret_device.dv_base.hi = 0;
-    secret_device.dv_size.lo = strlen(SECRET_MESSAGE);
+    secret_device.dv_size.lo = 0;
     secret_device.dv_size.hi = 0;
-    return &hello_device;
+    return &secret_device;
 }
 
 PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
