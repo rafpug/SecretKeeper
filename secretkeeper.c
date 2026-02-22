@@ -1,3 +1,16 @@
+/*  SOURCE FILE: secretkeeper.c
+ *
+ *  This is a character device driver that holds a secret.
+ *  The secret can only be read by the owner of the secret
+ *  When the device is unowned, whoever writes the secret
+ *  first becomes the owner.
+ *
+ *  Owners of a secret can read their secret, but once the secret
+ *  has been read atleast once and all open file descriptors are closed
+ *  then the device resets to be unowned and no longer holds a secret 
+ *
+ *  Ownership can be transfered by the owner with ioctl() */
+
 #include <minix/drivers.h>
 #include <minix/driver.h>
 #include <stdio.h>
@@ -33,7 +46,7 @@
 FORWARD _PROTOTYPE( char * secret_name,   (void) );
 FORWARD _PROTOTYPE( int secret_open,      (struct driver *d, message *m) );
 FORWARD _PROTOTYPE( int secret_close,     (struct driver *d, message *m) );
-FORWARD _PROTOTYPE( int secret_ioctl,     (struct driver *d, messega *m) );
+FORWARD _PROTOTYPE( int secret_ioctl,     (struct driver *d, message *m) );
 FORWARD _PROTOTYPE( struct device * secret_prepare, (int device) );
 FORWARD _PROTOTYPE( int secret_transfer,  (int procnr, int opcode,
                                           u64_t position, iovec_t *iov,
@@ -95,8 +108,8 @@ PRIVATE void secret_reset(void)
     read_once = UNREAD;
     rpos = 0;
     wpos = 0;
-    owned = UNOWNED;
-    owner = 0;
+    secret_owned = UNOWNED;
+    secret_owner = 0;
 }
 
 /* Returns the name of this driver */
@@ -258,7 +271,7 @@ PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
             if (ret != OK) {
                 return ret;
             }
-            rpos += bytes
+            rpos += bytes;
             iov->iov_size -= bytes;
             break;
         
@@ -350,9 +363,9 @@ PRIVATE int sef_cb_lu_state_save(int state) {
 /* Helper that retrieves and deletes a stored value */
 PRIVATE int restore_wrapper(char *name, void *vaddr, size_t length) {
     int ret;
-    ret = ds_retrieve_mem(name, (char *) ptr, &length);
+    ret = ds_retrieve_mem(name, (char *) vaddr, &length);
     ds_delete_mem(name);
-    return ret
+    return ret;
 }
     
 
@@ -431,19 +444,17 @@ PRIVATE int sef_cb_init(int type, sef_init_info_t *info)
     open_counter = 0;
     switch(type) {
         case SEF_INIT_FRESH:
-            printf("%s", SECRET_MESSAGE);
+            secret_reset();
         break;
 
         case SEF_INIT_LU:
             /* Restore the state. */
             lu_state_restore();
             do_announce_driver = FALSE;
-
-            printf("%sHey, I'm a new version!\n", SECRET_MESSAGE);
         break;
 
         case SEF_INIT_RESTART:
-            printf("%sHey, I've just been restarted!\n", SECRET_MESSAGE);
+            secret_reset();
         break;
     }
 
@@ -459,13 +470,13 @@ PRIVATE int sef_cb_init(int type, sef_init_info_t *info)
 PUBLIC int main(int argc, char **argv)
 {
     /*
- *      * Perform initialization.
- *           */
+     * Perform initialization.
+     */
     sef_local_startup();
 
     /*
- *      * Run the main loop.
- *           */
+     * Run the main loop.
+     */
     driver_task(&secret_tab, DRIVER_STD);
     return OK;
 }
