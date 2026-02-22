@@ -304,19 +304,60 @@ PRIVATE void secret_geometry(entry)
 
 PRIVATE int sef_cb_lu_state_save(int state) {
 /* Save the state. */
-    ds_publish_mem("open_counter", open_counter, sizeof(int), DSF_OVERWRITE);
-    
+    int ret;
+
+    ret = ds_publish_mem("open_counter", &open_counter, sizeof(int),
+                            DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("wpos", &wpos, sizeof(size_t), DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("rpos", &rpos, sizeof(size_t), DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("secret_owner", &secret_owner, sizeof(uid_t), 
+                            DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("secret_owned", &secret_owned, sizeof(int), 
+                            DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("read_once", &read_once, sizeof(int), DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
+
+    ret = ds_publish_mem("secret_buf", secret_buf, SECRET_SIZE, DSF_OVERWRITE);
+    if (ret != OK) {
+        return ret;
+    }
 
     return OK;
 }
 
 PRIVATE int lu_state_restore() {
 /* Restore the state. */
-    u32_t value;
+    size_t len;
+    int ret;
 
-    ds_retrieve_u32("open_counter", &value);
-    ds_delete_u32("open_counter");
+    len = sizeof(int);
+    ret = ds_retrieve_mem("open_counter",(char *) &open_counter, &len);
+    ds_delete_mem("open_counter");
     open_counter = (int) value;
+
+    ds_retrieve_mem("open_counter", 
 
     return OK;
 }
