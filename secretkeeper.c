@@ -11,13 +11,21 @@
 #define SECRET_SIZE 8192
 #endif
 
+/* The value of the read bit of the flags from open() */
 #ifndef RBIT
 #define RBIT 4
 #endif
 
+/* The value of the write bit of the flags from open() */
 #ifndef WBIT
 #define WBIT 2
 #endif
+
+/* Default value of the boolean that represents the unowned state */
+#define UNOWNED 0
+
+/* Default value of the boolean that represents the unread state */
+#define UNREAD 0
 
 /*
  * Function prototypes for the secret driver.
@@ -72,10 +80,10 @@ PRIVATE size_t rpos;
 PRIVATE size_t wpos;
 
 /* Boolean that indicates whether the secret is owned */
-PRIVATE int owned;
+PRIVATE int secret_owned;
 
 /* The uid of the owner of the secret */
-PRIVATE uid_t owner;
+PRIVATE uid_t secret_owner;
 
 /* The buffer that holds the current secret */
 PRIVATE char secret_buf[SECRET_SIZE];
@@ -84,10 +92,10 @@ PRIVATE char secret_buf[SECRET_SIZE];
 PRIVATE void secret_reset(void)
 {
     open_counter = 0;
-    read_once = 0;
+    read_once = UNREAD;
     rpos = 0;
     wpos = 0;
-    owned = 0;
+    owned = UNOWNED;
     owner = 0;
 }
 
@@ -98,6 +106,8 @@ PRIVATE char * secret_name(void)
     return "secretkeeper";
 }
 
+/* Either accepts or rejects the attempt to open the secret depending
+ * on the given flags, owner of the secret, and user trying to open */ 
 PRIVATE int secret_open(d, m)
     struct driver *d;
     message *m;
@@ -109,27 +119,62 @@ PRIVATE int secret_open(d, m)
 
     r = getnucred(who, &cred);
     if (r != OK) {
+        /* Returns errno from getnucred failing */
         return r;
     }
 
     if ((flags & (RBIT | WBIT)) == (RBIT | WBIT)) {
+        /* Reject opening for read-write access */
         return EACCES;
     }
 
-    if (!secret_owner_valid) {
-        
-    printf("secret_open(). Called %d time(s).\n", ++open_counter);
-    return OK;
+    if (secret_owned == UNOWNED) {
+        /* Opening with either read or write succeeds when
+         * secret is unowned */ 
+        if (flags & WBIT) {
+            /* Whoever writes first becomes the new owner */
+            secret_owned = !UNOWNED;
+            secret_owner = cred.uid;
+        }
+        open_counter++;
+        return OK;
+    }
+    else {
+        if (flags & WBIT) {
+            /* Opening with write fails when secret is owned */
+            return ENOSPC;
+        }
+
+        if ((flags & RBIT) && cred.uid != secret_owner) {
+            /* Opening with read fails when owner doesn't match */
+            return EACCES;
+        }
+
+        read_once = !UNREAD;
+        open_counter++;
+        return OK;
+    }    
 }
 
+/* Decrements the open_counter and resets everything once it reaches zero
+ * and the secret was read once */
 PRIVATE int secret_close(d, m)
     struct driver *d;
     message *m;
 {
+    if (open_counter > 0) {
+        open_counter--;
+    }
+    
+    if (open_counter <= 0 && read_once == !UNREAD) {
+        secret_reset();
+    }
+    
     printf("secret_close()\n");
     return OK;
 }
 
+/* Since this is a char device, nothing should use this */
 PRIVATE struct device * secret_prepare(dev)
     int dev;
 {
@@ -140,6 +185,39 @@ PRIVATE struct device * secret_prepare(dev)
     return &secret_device;
 }
 
+/* Switches the ownership of the secret as requested by the owner */
+PRIVATE int secret_ioctl(struct driver *d, message *m)
+{
+    int req = m->REQUEST;
+    struct ucred cred;
+    int r;
+    uid_t grantee;
+
+    if (req != SSGRANT) {
+        /* Rejects all ioctl requests aside from SSGRANT */
+        return ENOTTY;
+    }
+    
+    r = getnucred(m->IO_ENDPT, &cred);
+    if (r != OK) {
+        return r;
+    }
+
+    if (secret_owned == UNOWNED || cred.uid != secret_owner) {
+        return EACCES;
+    }
+
+    r = sys_safecopyfrom(m->IO_ENDPT, (vir_bytes)m->IO_GRANT, 0,
+                (vir_bytes) &grantee, sizeof(grantee), D);
+    if (r != OK) {
+        return r;
+    }
+
+    secret_owner = grantee;
+    return OK;
+}
+
+/* Read/writes to the secret buffer */
 PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
     int proc_nr;
     int opcode;
@@ -147,26 +225,54 @@ PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
     iovec_t *iov;
     unsigned nr_req;
 {
-    int bytes, ret;
+    size_t bytes;
+    int ret;
 
     printf("secret_transfer()\n");
 
-    bytes = strlen(SECRET_MESSAGE) - position.lo < iov->iov_size ?
-            strlen(SECRET_MESSAGE) - position.lo : iov->iov_size;
-
-    if (bytes <= 0)
-    {
-        return OK;
-    }
     switch (opcode)
     {
         case DEV_GATHER_S:
+            if (secret_owned == UNOWNED) {
+                /* No secret to read */
+                return OK;
+            }
+        
+            if (rpos >= wpos) {
+                /* Reached the end of written secret */
+                return OK;
+            }
+
+            bytes = iov->iov_size;
+            if (bytes > (wpos - rpos)){
+                bytes = (wpos - rpos);
+            }
+
+            if (!bytes) {
+                return OK;
+            }
+
             ret = sys_safecopyto(proc_nr, iov->iov_addr, 0,
-                                (vir_bytes) (SECRET_MESSAGE + position.lo),
+                                (vir_bytes) (secret_buf + rpos),
                                  bytes, D);
+            if (ret != OK) {
+                return ret;
+            }
+            rpos += bytes
             iov->iov_size -= bytes;
             break;
+        
+        case DEV_SCATTER_S:
+            if (wpos >= SECRET_SIZE) {
+                return ENOSPC;
+            }
 
+            bytes = iov->iov_size;
+            if (bytes > (SECRET_SIZE - wpos)){
+                bytes = SECRET_SIZE - wpos;
+            }
+
+            if (bytes       
         default:
             return EINVAL;
     }
