@@ -106,7 +106,6 @@ PRIVATE void secret_reset(void)
 /* Returns the name of this driver */
 PRIVATE char * secret_name(void)
 {
-    printf("secret_name()\n");
     return "secretkeeper";
 }
 
@@ -174,7 +173,6 @@ PRIVATE int secret_close(d, m)
         secret_reset();
     }
     
-    printf("secret_close()\n");
     return OK;
 }
 
@@ -232,7 +230,6 @@ PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
     size_t bytes;
     int ret;
 
-    printf("secret_transfer()\n");
 
     switch (opcode)
     {
@@ -300,7 +297,6 @@ PRIVATE int secret_transfer(proc_nr, opcode, position, iov, nr_req)
 PRIVATE void secret_geometry(entry)
     struct partition *entry;
 {
-    printf("secret_geometry()\n");
     entry->cylinders = 0;
     entry->heads     = 0;
     entry->sectors   = 0;
