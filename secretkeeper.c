@@ -19,19 +19,10 @@
 
 #include <sys/ioctl.h>
 #include <sys/ucred.h>
+#include <minix/const.h>
 
 #ifndef SECRET_SIZE
 #define SECRET_SIZE 8192
-#endif
-
-/* The value of the read bit of the flags from open() */
-#ifndef RBIT
-#define RBIT 4
-#endif
-
-/* The value of the write bit of the flags from open() */
-#ifndef WBIT
-#define WBIT 2
 #endif
 
 /* Default value of the boolean that represents the unowned state */
@@ -136,7 +127,7 @@ PRIVATE int secret_open(d, m)
         return -r;
     }
 
-    if ((flags & (RBIT | WBIT)) == (RBIT | WBIT)) {
+    if ((flags & (R_BIT | W_BIT)) == (R_BIT | W_BIT)) {
         /* Reject opening for read-write access */
         return EACCES;
     }
@@ -144,7 +135,7 @@ PRIVATE int secret_open(d, m)
     if (secret_owned == UNOWNED) {
         /* Opening with either read or write succeeds when
          * secret is unowned */ 
-        if (flags & WBIT) {
+        if (flags & W_BIT) {
             /* Whoever writes first becomes the new owner */
             secret_owned = !UNOWNED;
             secret_owner = cred.uid;
@@ -153,12 +144,12 @@ PRIVATE int secret_open(d, m)
         return OK;
     }
     else {
-        if (flags & WBIT) {
+        if (flags & W_BIT) {
             /* Opening with write fails when secret is owned */
             return ENOSPC;
         }
 
-        if ((flags & RBIT) && cred.uid != secret_owner) {
+        if ((flags & R_BIT) && cred.uid != secret_owner) {
             /* Opening with read fails when owner doesn't match */
             return EACCES;
         }
